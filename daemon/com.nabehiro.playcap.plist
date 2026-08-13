@@ -3,19 +3,19 @@
 <plist version="1.0">
 <dict>
 	<key>Label</key>
-	<string>com.nabehiro.robloxlimit</string>
+	<string>com.nabehiro.playcap</string>
 	<key>ProgramArguments</key>
 	<array>
 		<string>/bin/bash</string>
-		<string>/usr/local/libexec/roblox-limit/monitor.sh</string>
+		<string>/usr/local/libexec/playcap/monitor.sh</string>
 	</array>
 	<key>StartInterval</key>
 	<integer>30</integer>
 	<key>RunAtLoad</key>
 	<true/>
 	<key>StandardOutPath</key>
-	<string>/Library/Application Support/RobloxLimit/daemon.log</string>
+	<string>/Library/Application Support/PlayCap/daemon.log</string>
 	<key>StandardErrorPath</key>
-	<string>/Library/Application Support/RobloxLimit/daemon.log</string>
+	<string>/Library/Application Support/PlayCap/daemon.log</string>
 </dict>
 </plist>

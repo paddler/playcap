@@ -1,27 +1,28 @@
 #!/bin/bash
-# Roblox Limit - 監視デーモン本体
-# launchd (root) から30秒ごとに1回実行される。1回の実行で1 tick 分を処理して終了する。
+# PlayCap - monitor daemon core
+# Runs once per tick (every 30s) from launchd as root.
 #
-# テスト用: 環境変数 ROBLOX_LIMIT_DIR でデータディレクトリを差し替えると
-# root 不要で動作確認できる（通知は自分のセッションに直接出す）。
+# Testing: set PLAYCAP_DIR to override the data directory and run without root
+# (notifications then go to the current session directly).
 set -u
 
-APP_DIR="${ROBLOX_LIMIT_DIR:-/Library/Application Support/RobloxLimit}"
+APP_DIR="${PLAYCAP_DIR:-/Library/Application Support/PlayCap}"
 CONFIG="$APP_DIR/config"
 STATE="$APP_DIR/state"
 USAGE_LOG="$APP_DIR/usage.log"
-TICK="${ROBLOX_LIMIT_TICK:-30}"
+TICK="${PLAYCAP_TICK:-30}"
 
 [ -r "$CONFIG" ] || exit 0
 
-# ---- config 読込 (key=value 形式) ----
+# ---- load config (key=value) ----
 enabled=1
 weekday_limit_min=120
 weekend_limit_min=180
 allowed_start="07:00"
 allowed_end="21:00"
 target_user=""
-proc_pattern="roblox"
+targets="roblox"
+lang="auto"
 while IFS='=' read -r k v; do
   case "$k" in
     enabled)            enabled="$v" ;;
@@ -30,7 +31,8 @@ while IFS='=' read -r k v; do
     allowed_start)      allowed_start="$v" ;;
     allowed_end)        allowed_end="$v" ;;
     target_user)        target_user="$v" ;;
-    proc_pattern)       proc_pattern="$v" ;;
+    targets)            targets="$v" ;;
+    lang)               lang="$v" ;;
   esac
 done < "$CONFIG"
 
@@ -38,7 +40,7 @@ done < "$CONFIG"
 [ -n "$target_user" ] || exit 0
 uid=$(id -u "$target_user" 2>/dev/null) || exit 0
 
-# ---- state 読込 ----
+# ---- load state ----
 today=$(date +%F)
 s_date=""; used=0; bonus=0; warned=0
 if [ -r "$STATE" ]; then
@@ -52,7 +54,7 @@ if [ -r "$STATE" ]; then
   done < "$STATE"
 fi
 
-# 日付が変わったら前日の使用時間を履歴に残してリセット
+# On date change: append yesterday's total to history, then reset
 if [ "$s_date" != "$today" ]; then
   if [ -n "$s_date" ]; then
     echo "$s_date used_min=$(( used / 60 ))" >> "$USAGE_LOG"
@@ -66,9 +68,30 @@ save_state() {
   chmod 644 "$STATE" 2>/dev/null
 }
 
-# ---- Roblox プロセス検知 ----
-# プロセス名のみで照合する（-f は使わない: ブラウザの URL 引数 "roblox.com" 等への誤爆防止）
-pids=$(pgrep -U "$uid" -i "$proc_pattern" 2>/dev/null || true)
+# ---- detect monitored processes ----
+# Match by process name only (never -f: URL arguments in browsers would false-match).
+# Exclude PlayCap's own components so a broad user pattern can't kill the GUI.
+collect_pids() {
+  local pat pid name result=""
+  local IFS_BAK="$IFS"
+  IFS=','
+  for pat in $targets; do
+    IFS="$IFS_BAK"
+    [ -n "$pat" ] || continue
+    for pid in $(pgrep -U "$uid" -i "$pat" 2>/dev/null); do
+      name=$(basename "$(ps -o comm= -p "$pid" 2>/dev/null)" 2>/dev/null)
+      case "$name" in
+        PlayCap*|playcap*) continue ;;
+      esac
+      result="$result $pid"
+    done
+    IFS=','
+  done
+  IFS="$IFS_BAK"
+  echo "$result" | tr ' ' '\n' | grep -v '^$' | sort -u
+}
+
+pids=$(collect_pids)
 if [ -z "$pids" ]; then
   save_state
   exit 0
@@ -76,57 +99,89 @@ fi
 
 used=$(( used + TICK ))
 
-notify() { # $1=メッセージ
-  local msg="$1"
+# ---- language resolution (auto = target user's macOS locale) ----
+if [ "$lang" = "auto" ]; then
   if [ "$(id -u)" = "$uid" ]; then
-    /usr/bin/osascript -e "display notification \"$msg\" with title \"Roblox タイマー\" sound name \"Glass\"" >/dev/null 2>&1 || true
+    loc=$(defaults read -g AppleLocale 2>/dev/null || echo "en")
   else
-    launchctl asuser "$uid" sudo -u "$target_user" \
-      /usr/bin/osascript -e "display notification \"$msg\" with title \"Roblox タイマー\" sound name \"Glass\"" >/dev/null 2>&1 || true
+    loc=$(launchctl asuser "$uid" sudo -u "$target_user" defaults read -g AppleLocale 2>/dev/null || echo "en")
+  fi
+  case "$loc" in ja*) lang="ja" ;; *) lang="en" ;; esac
+fi
+
+msg() { # $1 = message key
+  if [ "$lang" = "ja" ]; then
+    case "$1" in
+      curfew) echo "いまは使えない時間です（つかえるのは ${allowed_start}〜${allowed_end}）" ;;
+      timeup) echo "今日のゲーム時間はおしまい！また明日ね" ;;
+      min1)   echo "残り1分！セーブしてね" ;;
+      min5)   echo "あと5分でおわりです" ;;
+      min10)  echo "あと10分でおわりです" ;;
+    esac
+  else
+    case "$1" in
+      curfew) echo "Game time is not allowed right now (allowed: ${allowed_start}-${allowed_end})" ;;
+      timeup) echo "Game time is over for today. See you tomorrow!" ;;
+      min1)   echo "1 minute left! Save your game now" ;;
+      min5)   echo "5 minutes left" ;;
+      min10)  echo "10 minutes left" ;;
+    esac
   fi
 }
 
-kill_roblox() {
-  pkill -9 -U "$uid" -i "$proc_pattern" 2>/dev/null || true
+notify() { # $1 = message key
+  local text
+  text=$(msg "$1")
+  if [ "$(id -u)" = "$uid" ]; then
+    /usr/bin/osascript -e "display notification \"$text\" with title \"PlayCap\" sound name \"Glass\"" >/dev/null 2>&1 || true
+  else
+    launchctl asuser "$uid" sudo -u "$target_user" \
+      /usr/bin/osascript -e "display notification \"$text\" with title \"PlayCap\" sound name \"Glass\"" >/dev/null 2>&1 || true
+  fi
+}
+
+kill_targets() {
+  # shellcheck disable=SC2086
+  kill -9 $pids 2>/dev/null || true
 }
 
 hm_to_min() { echo $(( 10#${1%%:*} * 60 + 10#${1##*:} )); }
 
-# ---- 時間帯チェック（利用可能時間外なら即終了） ----
+# ---- curfew check (outside allowed window -> terminate) ----
 now_min=$(( 10#$(date +%H) * 60 + 10#$(date +%M) ))
 start_min=$(hm_to_min "$allowed_start")
 end_min=$(hm_to_min "$allowed_end")
 if [ "$now_min" -lt "$start_min" ] || [ "$now_min" -ge "$end_min" ]; then
-  notify "いまは Roblox を使えない時間です（つかえるのは ${allowed_start}〜${allowed_end}）"
-  kill_roblox
+  notify curfew
+  kill_targets
   save_state
   exit 0
 fi
 
-# ---- 上限チェック（平日/休日別 + 当日ボーナス） ----
-dow=$(date +%u)   # 1=月 ... 6=土 7=日
+# ---- daily limit check (weekday/weekend + today's bonus) ----
+dow=$(date +%u)   # 1=Mon ... 6=Sat 7=Sun
 if [ "$dow" -ge 6 ]; then
   limit_sec=$(( weekend_limit_min * 60 + bonus ))
 else
   limit_sec=$(( weekday_limit_min * 60 + bonus ))
 fi
 
-# 残り時間 = 「上限までの残り」と「利用終了時刻までの残り」の小さいほう
+# remaining = min(remaining by limit, remaining until curfew end)
 remain=$(( limit_sec - used ))
 remain_curfew=$(( (end_min - now_min) * 60 ))
 [ "$remain_curfew" -lt "$remain" ] && remain=$remain_curfew
 
 if [ "$remain" -le 0 ]; then
-  notify "今日の Roblox 時間はおしまい！また明日ね"
-  kill_roblox
+  notify timeup
+  kill_targets
 elif [ "$remain" -le 60 ]; then
-  if [ "$warned" -lt 3 ]; then notify "残り1分！セーブしてね"; warned=3; fi
+  if [ "$warned" -lt 3 ]; then notify min1; warned=3; fi
 elif [ "$remain" -le 300 ]; then
-  if [ "$warned" -lt 2 ]; then notify "Roblox はあと5分でおわりです"; warned=2; fi
+  if [ "$warned" -lt 2 ]; then notify min5; warned=2; fi
 elif [ "$remain" -le 600 ]; then
-  if [ "$warned" -lt 1 ]; then notify "Roblox はあと10分でおわりです"; warned=1; fi
+  if [ "$warned" -lt 1 ]; then notify min10; warned=1; fi
 else
-  warned=0   # ボーナス延長などで残りが増えた場合は警告段階を戻す
+  warned=0   # remaining went back up (e.g. bonus added) -> reset warning stage
 fi
 
 save_state

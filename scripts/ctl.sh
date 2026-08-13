@@ -1,28 +1,30 @@
 #!/bin/bash
-# Roblox Limit - 設定操作 CLI（GUI からもこれを呼ぶ）
-# 参照系 (status) は誰でも実行可。変更系は root（= sudo / 管理者認証）が必要。
+# PlayCap - settings CLI (also invoked by the GUI)
+# Reading (status) works for everyone; changes require root (sudo / admin auth).
 set -u
 
-APP_DIR="${ROBLOX_LIMIT_DIR:-/Library/Application Support/RobloxLimit}"
+APP_DIR="${PLAYCAP_DIR:-/Library/Application Support/PlayCap}"
 CONFIG="$APP_DIR/config"
 STATE="$APP_DIR/state"
 
 usage() {
   cat <<'USAGE'
-使い方: roblox-limit <コマンド>
+Usage: playcap <command>
 
-  status            今日の使用状況と設定を表示
-  status --raw      機械可読形式で表示（GUI 用）
-  enable            制限を ON
-  disable           制限を OFF
-  set-weekday <分>  平日の上限（分）を設定
-  set-weekend <分>  休日（土日）の上限（分）を設定
-  set-curfew <開始 HH:MM> <終了 HH:MM>  利用可能な時間帯を設定
-  add-bonus <分>    今日だけ上限を延長（翌日自動リセット）
-  reset-today       今日の使用時間カウントをゼロに戻す
-  set-user <名前>   監視対象のアカウント名を設定
+  status                 Show today's usage and current settings
+  status --raw           Machine-readable output (used by the GUI)
+  enable                 Turn limits ON
+  disable                Turn limits OFF
+  set-weekday <min>      Set weekday daily limit (minutes)
+  set-weekend <min>      Set weekend daily limit (minutes)
+  set-curfew <HH:MM> <HH:MM>   Set allowed time window (start end)
+  set-targets <patterns> Comma-separated process name patterns (e.g. roblox,minecraft)
+  set-lang <auto|ja|en>  Notification language
+  add-bonus <min>        Extend today's limit (auto-resets tomorrow)
+  reset-today            Reset today's usage counter
+  set-user <name>        Set the monitored macOS account
 
-変更系コマンドは sudo が必要です。例: sudo roblox-limit set-weekday 120
+Commands that change settings require sudo, e.g.: sudo playcap set-weekday 120
 USAGE
 }
 
@@ -42,25 +44,33 @@ set_key() { # $1=file $2=key $3=value
 
 need_write() {
   if [ "$(id -u)" != "0" ] && [ ! -w "$CONFIG" ]; then
-    echo "エラー: このコマンドは管理者権限が必要です。sudo を付けて実行してください。" >&2
+    echo "Error: this command requires administrator privileges. Run it with sudo." >&2
     exit 1
   fi
 }
 
-check_int() { # $1=値 $2=名前
+check_int() { # $1=value $2=name
   case "$1" in
-    ''|*[!0-9]*) echo "エラー: $2 は数値（分）で指定してください: '$1'" >&2; exit 1 ;;
+    ''|*[!0-9]*) echo "Error: $2 must be a number of minutes, got '$1'" >&2; exit 1 ;;
   esac
 }
 
 check_hhmm() {
   case "$1" in
     [0-2][0-9]:[0-5][0-9]) return 0 ;;
-    *) echo "エラー: 時刻は HH:MM 形式で指定してください: '$1'" >&2; exit 1 ;;
+    *) echo "Error: time must be in HH:MM format, got '$1'" >&2; exit 1 ;;
   esac
 }
 
-# 今日の state を読む（日付が古ければゼロ扱い）
+check_targets() {
+  case "$1" in
+    ''|*[!A-Za-z0-9_,.-]*)
+      echo "Error: targets must be comma-separated process name patterns (letters, digits, . _ -), got '$1'" >&2
+      exit 1 ;;
+  esac
+}
+
+# Read today's state (treat stale dates as zero)
 read_today_state() {
   today=$(date +%F)
   used=0; bonus=0
@@ -79,6 +89,8 @@ case "$cmd" in
     a_start=$(get allowed_start "$CONFIG");     a_start=${a_start:-07:00}
     a_end=$(get allowed_end "$CONFIG");         a_end=${a_end:-21:00}
     t_user=$(get target_user "$CONFIG")
+    targets=$(get targets "$CONFIG");           targets=${targets:-roblox}
+    lang=$(get lang "$CONFIG");                 lang=${lang:-auto}
     read_today_state
     dow=$(date +%u)
     if [ "$dow" -ge 6 ]; then limit_min=$weekend; else limit_min=$weekday; fi
@@ -88,59 +100,82 @@ case "$cmd" in
     running=0
     if [ -n "$t_user" ]; then
       t_uid=$(id -u "$t_user" 2>/dev/null || echo "")
-      if [ -n "$t_uid" ] && pgrep -U "$t_uid" -i "roblox" >/dev/null 2>&1; then running=1; fi
+      if [ -n "$t_uid" ]; then
+        IFS_BAK="$IFS"; IFS=','
+        for pat in $targets; do
+          IFS="$IFS_BAK"
+          [ -n "$pat" ] || continue
+          for pid in $(pgrep -U "$t_uid" -i "$pat" 2>/dev/null); do
+            name=$(basename "$(ps -o comm= -p "$pid" 2>/dev/null)" 2>/dev/null)
+            case "$name" in PlayCap*|playcap*) continue ;; esac
+            running=1
+          done
+          IFS=','
+        done
+        IFS="$IFS_BAK"
+      fi
     fi
     if [ "${2:-}" = "--raw" ]; then
-      printf 'enabled=%s\nweekday_limit_min=%s\nweekend_limit_min=%s\nallowed_start=%s\nallowed_end=%s\ntarget_user=%s\ndate=%s\nused_sec=%s\nbonus_sec=%s\nlimit_today_min=%s\nremain_sec=%s\nrunning=%s\n' \
-        "$enabled" "$weekday" "$weekend" "$a_start" "$a_end" "$t_user" \
+      printf 'enabled=%s\nweekday_limit_min=%s\nweekend_limit_min=%s\nallowed_start=%s\nallowed_end=%s\ntarget_user=%s\ntargets=%s\nlang=%s\ndate=%s\nused_sec=%s\nbonus_sec=%s\nlimit_today_min=%s\nremain_sec=%s\nrunning=%s\n' \
+        "$enabled" "$weekday" "$weekend" "$a_start" "$a_end" "$t_user" "$targets" "$lang" \
         "$today" "$used" "$bonus" "$(( limit_sec / 60 ))" "$remain_sec" "$running"
     else
       if [ "$enabled" = "1" ]; then state_txt="ON"; else state_txt="OFF"; fi
-      if [ "$running" = "1" ]; then run_txt="起動中"; else run_txt="停止中"; fi
-      echo "Roblox 制限        : $state_txt"
-      echo "対象アカウント     : ${t_user:-（未設定）}"
-      echo "Roblox             : $run_txt"
-      echo "今日の使用         : $(( used / 60 ))分 / 上限 $(( limit_sec / 60 ))分（残り $(( remain_sec / 60 ))分）"
-      echo "上限設定           : 平日 ${weekday}分 / 休日 ${weekend}分"
-      echo "利用できる時間帯   : ${a_start}〜${a_end}"
-      [ "$bonus" -gt 0 ] && echo "今日のボーナス     : +$(( bonus / 60 ))分"
+      if [ "$running" = "1" ]; then run_txt="running"; else run_txt="not running"; fi
+      echo "Limits          : $state_txt"
+      echo "Monitored user  : ${t_user:-(not set)}"
+      echo "Monitored apps  : $targets ($run_txt)"
+      echo "Today           : $(( used / 60 ))min used / $(( limit_sec / 60 ))min limit ($(( remain_sec / 60 ))min left)"
+      echo "Limits config   : weekday ${weekday}min / weekend ${weekend}min"
+      echo "Allowed hours   : ${a_start}-${a_end}"
+      echo "Language        : $lang"
+      [ "$bonus" -gt 0 ] && echo "Today's bonus   : +$(( bonus / 60 ))min"
     fi
     ;;
   enable)
-    need_write; set_key "$CONFIG" enabled 1; echo "制限を ON にしました" ;;
+    need_write; set_key "$CONFIG" enabled 1; echo "Limits turned ON" ;;
   disable)
-    need_write; set_key "$CONFIG" enabled 0; echo "制限を OFF にしました" ;;
+    need_write; set_key "$CONFIG" enabled 0; echo "Limits turned OFF" ;;
   set-weekday)
-    need_write; check_int "${2:-}" "平日上限"
-    set_key "$CONFIG" weekday_limit_min "$2"; echo "平日上限を ${2}分 にしました" ;;
+    need_write; check_int "${2:-}" "weekday limit"
+    set_key "$CONFIG" weekday_limit_min "$2"; echo "Weekday limit set to $2 min" ;;
   set-weekend)
-    need_write; check_int "${2:-}" "休日上限"
-    set_key "$CONFIG" weekend_limit_min "$2"; echo "休日上限を ${2}分 にしました" ;;
+    need_write; check_int "${2:-}" "weekend limit"
+    set_key "$CONFIG" weekend_limit_min "$2"; echo "Weekend limit set to $2 min" ;;
   set-curfew)
     need_write; check_hhmm "${2:-}"; check_hhmm "${3:-}"
     set_key "$CONFIG" allowed_start "$2"
     set_key "$CONFIG" allowed_end "$3"
-    echo "利用できる時間帯を ${2}〜${3} にしました" ;;
+    echo "Allowed hours set to $2-$3" ;;
+  set-targets)
+    need_write; check_targets "${2:-}"
+    set_key "$CONFIG" targets "$2"; echo "Monitored apps set to: $2" ;;
+  set-lang)
+    need_write
+    case "${2:-}" in
+      auto|ja|en) set_key "$CONFIG" lang "$2"; echo "Language set to $2" ;;
+      *) echo "Error: lang must be auto, ja, or en" >&2; exit 1 ;;
+    esac ;;
   add-bonus)
-    need_write; check_int "${2:-}" "延長時間"
+    need_write; check_int "${2:-}" "bonus minutes"
     read_today_state
-    # state の日付が古い場合は今日の状態として作り直す（ボーナスが日付リセットで消えるのを防ぐ）
+    # Rewrite state as today's (prevents the bonus being wiped by the daily reset)
     printf 'date=%s\nused=%s\nbonus=%s\nwarned=0\n' \
       "$today" "$used" "$(( bonus + $2 * 60 ))" > "$STATE.tmp" && mv "$STATE.tmp" "$STATE"
     chmod 644 "$STATE" 2>/dev/null
-    echo "今日の上限を +${2}分 延長しました" ;;
+    echo "Extended today's limit by $2 min" ;;
   reset-today)
     need_write
     read_today_state
     printf 'date=%s\nused=0\nbonus=%s\nwarned=0\n' "$today" "$bonus" > "$STATE.tmp" && mv "$STATE.tmp" "$STATE"
     chmod 644 "$STATE" 2>/dev/null
-    echo "今日の使用時間をリセットしました" ;;
+    echo "Today's usage counter reset" ;;
   set-user)
     need_write
     if ! id -u "${2:-}" >/dev/null 2>&1; then
-      echo "エラー: ユーザー '${2:-}' が見つかりません" >&2; exit 1
+      echo "Error: user '${2:-}' not found" >&2; exit 1
     fi
-    set_key "$CONFIG" target_user "$2"; echo "監視対象を '$2' にしました" ;;
+    set_key "$CONFIG" target_user "$2"; echo "Monitored user set to '$2'" ;;
   -h|--help|help)
     usage ;;
   *)

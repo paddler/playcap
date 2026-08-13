@@ -1,20 +1,21 @@
 #!/bin/bash
-# 配布物 RobloxLimit-installer.zip を作成（開発機で実行）
+# Build the distributable zip: dist/PlayCap-installer.zip
 set -eu
 cd "$(dirname "$0")"
 
 ./gui/build.sh
 
-PKG="dist/RobloxLimit"
+PKG="dist/PlayCap"
 rm -rf dist
 mkdir -p "$PKG/scripts" "$PKG/daemon"
 
 cp scripts/monitor.sh scripts/ctl.sh "$PKG/scripts/"
 cp scripts/install.sh scripts/uninstall.sh "$PKG/"
-cp daemon/com.nabehiro.robloxlimit.plist "$PKG/daemon/"
-cp -R "gui/dist/Roblox Limit.app" "$PKG/"
-cp INSTALL.md "$PKG/"
-chmod +x "$PKG"/*.sh "$PKG/scripts/"*.sh
+cp installer/Install.command installer/Uninstall.command "$PKG/"
+cp daemon/com.nabehiro.playcap.plist "$PKG/daemon/"
+cp -R "gui/dist/PlayCap.app" "$PKG/"
+cp INSTALL.en.md INSTALL.ja.md "$PKG/"
+chmod +x "$PKG"/*.sh "$PKG"/*.command "$PKG/scripts/"*.sh
 
-(cd dist && zip -qry RobloxLimit-installer.zip RobloxLimit)
-echo "作成完了: dist/RobloxLimit-installer.zip"
+(cd dist && zip -qry PlayCap-installer.zip PlayCap)
+echo "Created: dist/PlayCap-installer.zip"
