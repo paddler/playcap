@@ -1,13 +1,17 @@
 import SwiftUI
 import Foundation
+import AppKit
 
 // PlayCap - parent control panel
 // Reads via ctl.sh status --raw (no privileges needed).
 // Changes run through "do shell script ... with administrator privileges",
 // so macOS shows an admin auth dialog = standard users (kids) cannot change settings.
 
-let ctlPath = "/usr/local/libexec/playcap/ctl.sh"
-let usageLogPath = "/Library/Application Support/PlayCap/usage.log"
+// Overridable for development/screenshots (PLAYCAP_CTL / PLAYCAP_USAGE_LOG)
+let ctlPath = ProcessInfo.processInfo.environment["PLAYCAP_CTL"]
+    ?? "/usr/local/libexec/playcap/ctl.sh"
+let usageLogPath = ProcessInfo.processInfo.environment["PLAYCAP_USAGE_LOG"]
+    ?? "/Library/Application Support/PlayCap/usage.log"
 
 // ---- localization ----
 let isJa = Locale.preferredLanguages.first?.hasPrefix("ja") ?? false
@@ -157,6 +161,18 @@ func runAsAdmin(_ command: String) -> String? {
     return nil
 }
 
+// Development helper: with PLAYCAP_SNAPSHOT=<path> set, the app renders its own
+// window to a PNG and exits (used to produce store/README screenshots; needs no
+// screen-recording permission because it draws its own view hierarchy).
+func saveSnapshotAndExit(_ path: String) {
+    guard let window = NSApp.windows.first, let view = window.contentView,
+          let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { exit(1) }
+    view.cacheDisplay(in: view.bounds, to: rep)
+    guard let data = rep.representation(using: .png, properties: [:]) else { exit(1) }
+    do { try data.write(to: URL(fileURLWithPath: path)) } catch { exit(1) }
+    exit(0)
+}
+
 // ---- UI ----
 struct ContentView: View {
     @State private var status: RawStatus? = nil
@@ -204,9 +220,16 @@ struct ContentView: View {
         }
         .padding(16)
         .frame(width: 440)
+        .background(Color(nsColor: .windowBackgroundColor))
         .onAppear {
             users = fetchLocalUsers()
             reload(applyToForm: true)
+            if let snap = ProcessInfo.processInfo.environment["PLAYCAP_SNAPSHOT"] {
+                // Fixed appearance so store screenshots don't depend on the host's dark mode
+                let ap = ProcessInfo.processInfo.environment["PLAYCAP_APPEARANCE"] ?? "light"
+                NSApp.appearance = NSAppearance(named: ap == "dark" ? .darkAqua : .aqua)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2) { saveSnapshotAndExit(snap) }
+            }
         }
         .onReceive(timer) { _ in reload(applyToForm: false) }
         .alert(T.errorTitle, isPresented: .constant(!errorMessage.isEmpty)) {
