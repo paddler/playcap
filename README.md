@@ -5,9 +5,11 @@
 日本語版: [README.ja.md](README.ja.md) / セットアップ: [INSTALL.ja.md](INSTALL.ja.md)
 
 macOS Screen Time famously fails to limit Roblox (it is not a Mac App Store app — see the
-Apple Community threads with hundreds of "me too"s). Roblox's own parental controls are
-account-based: they don't apply to accounts registered as 13+, and a child can simply create a
-new account to escape them.
+Apple Community threads with hundreds of "me too"s). Roblox's own parental controls only
+cover the single account a parent has linked — and per Roblox's own help center, at age 13
+the child takes over the screen-time setting themselves ("At age 13, children directly manage
+these settings: Screen time limits"); parents keep visibility, not control. Any new, unlinked
+account (sign-up needs nothing more than a birthday) falls outside the limits entirely.
 
 PlayCap takes a different approach: a tiny root-level monitor on the Mac itself counts play
 time and quits the game when time is up — **no matter which Roblox account is logged in**.
