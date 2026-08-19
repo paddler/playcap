@@ -17,6 +17,9 @@ time and quits the game when time is up — **no matter which Roblox account is 
 ## Features
 
 - Daily play time limit (separate weekday / weekend settings)
+- Tray-aware counting: modern Roblox keeps a resident process after you close the
+  window — PlayCap counts only actual play (CPU activity), so idle tray time never
+  burns the budget
 - Allowed-hours window (e.g. nothing before 07:00 or after 21:00)
 - Warnings at 10 / 5 / 1 minutes remaining, then the game quits
 - "+30 min today" bonus button (auto-resets tomorrow)
@@ -35,7 +38,8 @@ time and quits the game when time is up — **no matter which Roblox account is 
       │
       ▼
 [monitor.sh] ── pgrep by process name (never -f: no false matches on browser URLs)
-      │           ├─ counts play time while a monitored game is running
+      │           ├─ counts time only during actual play (CPU-activity check:
+      │           │   Roblox's idle tray-resident process doesn't count)
       │           ├─ notifies the child's session at 10/5/1 min remaining
       │           └─ over the limit / outside allowed hours → kills the game
       ▼

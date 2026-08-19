@@ -22,15 +22,26 @@ check() { # $1=description $2=condition(0=OK)
 
 mkdir -p "$PLAYCAP_DIR"
 
-# Fake game binaries (self-compiled)
-printf '#include <unistd.h>\nint main(void){ sleep(600); return 0; }\n' > "$WORK/fake.c"
-clang -o "$WORK/RobloxPlayer" "$WORK/fake.c"
-cp "$WORK/RobloxPlayer" "$WORK/MinecraftGame"
-cp "$WORK/RobloxPlayer" "$WORK/PlayCapPanel"
+# Fake game binaries (self-compiled; copies of system binaries get AMFI-killed).
+# "active" fakes spin the CPU (= real gameplay), "idle" fakes just sleep
+# (= Roblox's tray-resident "RobloxPlayer -launchToTray" after the window closes).
+printf 'int main(void){ volatile unsigned long i=0; for(;;){ i++; } return 0; }\n' > "$WORK/spin.c"
+printf '#include <unistd.h>\nint main(void){ sleep(600); return 0; }\n' > "$WORK/idle.c"
+mkdir -p "$WORK/active" "$WORK/idle"
+clang -o "$WORK/active/RobloxPlayer" "$WORK/spin.c"
+cp "$WORK/active/RobloxPlayer" "$WORK/active/MinecraftGame"
+cp "$WORK/active/RobloxPlayer" "$WORK/active/PlayCapPanel"
+clang -o "$WORK/idle/RobloxPlayer" "$WORK/idle.c"
 
 FAKE_PIDS=""
-start_fake() { # $1=binary name -> sets LAST_PID
-  "$WORK/$1" &
+start_active() { # $1=binary name -> sets LAST_PID
+  "$WORK/active/$1" &
+  LAST_PID=$!
+  FAKE_PIDS="$FAKE_PIDS $LAST_PID"
+  sleep 1    # let %cpu accumulate so the activity check registers it
+}
+start_idle() { # $1=binary name -> sets LAST_PID
+  "$WORK/idle/$1" &
   LAST_PID=$!
   FAKE_PIDS="$FAKE_PIDS $LAST_PID"
   sleep 0.3
@@ -56,7 +67,7 @@ EOF
 
 echo "=== Test 1: counts while game is running ==="
 write_config
-start_fake RobloxPlayer; RB_PID=$LAST_PID
+start_active RobloxPlayer; RB_PID=$LAST_PID
 bash "$MON"; bash "$MON"; bash "$MON"
 used=$(get_state used)
 check "3 ticks -> used=90 (got: $used)" "$([ "$used" = "90" ]; echo $?)"
@@ -70,7 +81,7 @@ used=$(get_state used)
 check "used stays 90 (got: $used)" "$([ "$used" = "90" ]; echo $?)"
 
 echo "=== Test 3: killed when over the limit ==="
-start_fake RobloxPlayer; RB_PID=$LAST_PID
+start_active RobloxPlayer; RB_PID=$LAST_PID
 sed -i '' 's/^used=.*/used=7180/' "$PLAYCAP_DIR/state"
 bash "$MON"   # +30 -> 7210 > 7200 -> kill
 sleep 0.5
@@ -79,7 +90,7 @@ check "killed over the limit" "$([ "$?" != "0" ]; echo $?)"
 
 echo "=== Test 4: warning stage transitions ==="
 rm -f "$PLAYCAP_DIR/state"
-start_fake RobloxPlayer
+start_active RobloxPlayer
 bash "$MON"
 w=$(get_state warned)
 check "plenty left -> warned=0 (got: $w)" "$([ "$w" = "0" ]; echo $?)"
@@ -97,7 +108,7 @@ echo "=== Test 5: killed outside allowed hours ==="
 rm -f "$PLAYCAP_DIR/state"
 write_config
 sed -i '' 's/^allowed_end=.*/allowed_end=00:01/' "$PLAYCAP_DIR/config"
-start_fake RobloxPlayer; RB_PID=$LAST_PID
+start_active RobloxPlayer; RB_PID=$LAST_PID
 bash "$MON"
 sleep 0.5
 kill -0 "$RB_PID" 2>/dev/null
@@ -116,7 +127,7 @@ grep -q "2026-08-11 used_min=90" "$PLAYCAP_DIR/usage.log"
 check "yesterday logged to usage.log" "$?"
 
 echo "=== Test 7: disabled -> no-op ==="
-start_fake RobloxPlayer; RB_PID=$LAST_PID
+start_active RobloxPlayer; RB_PID=$LAST_PID
 sed -i '' 's/^enabled=.*/enabled=0/' "$PLAYCAP_DIR/config"
 before=$(get_state used)
 bash "$MON"
@@ -131,7 +142,7 @@ echo "=== Test 8: multiple targets ==="
 rm -f "$PLAYCAP_DIR/state"
 write_config
 sed -i '' 's/^targets=.*/targets=roblox,minecraft/' "$PLAYCAP_DIR/config"
-start_fake MinecraftGame; MC_PID=$LAST_PID
+start_active MinecraftGame; MC_PID=$LAST_PID
 bash "$MON"
 used=$(get_state used)
 check "minecraft pattern counts too (used=$used)" "$([ "$used" = "30" ]; echo $?)"
@@ -146,13 +157,34 @@ echo "=== Test 9: PlayCap's own processes are excluded ==="
 rm -f "$PLAYCAP_DIR/state"
 write_config
 sed -i '' 's/^targets=.*/targets=playcap/' "$PLAYCAP_DIR/config"
-start_fake PlayCapPanel; GUI_PID=$LAST_PID
+start_active PlayCapPanel; GUI_PID=$LAST_PID
 bash "$MON"
 used=$(get_state used)
 kill -0 "$GUI_PID" 2>/dev/null
 alive=$?
 check "PlayCapPanel neither counted nor killed (used=$used, alive=$alive)" \
   "$([ "$used" = "0" ] && [ "$alive" = "0" ]; echo $?)"
+stop_all
+
+echo "=== Test 9b: idle tray-resident process is neither counted nor killed ==="
+rm -f "$PLAYCAP_DIR/state"
+write_config
+start_idle RobloxPlayer; TRAY_PID=$LAST_PID
+bash "$MON"
+used=$(get_state used)
+kill -0 "$TRAY_PID" 2>/dev/null
+alive=$?
+check "idle process: not counted, stays alive (used=$used, alive=$alive)" \
+  "$([ "$used" = "0" ] && [ "$alive" = "0" ]; echo $?)"
+# Even over the limit an idle process is left alone (prevents kill/notify spam
+# when the tray process would respawn all evening)
+printf 'date=%s\nused=99999\nbonus=0\nwarned=0\n' "$(date +%F)" > "$PLAYCAP_DIR/state"
+bash "$MON"
+used=$(get_state used)
+kill -0 "$TRAY_PID" 2>/dev/null
+alive=$?
+check "idle process over limit: untouched (used=$used, alive=$alive)" \
+  "$([ "$used" = "99999" ] && [ "$alive" = "0" ]; echo $?)"
 stop_all
 
 echo "=== Test 10: ctl.sh commands ==="

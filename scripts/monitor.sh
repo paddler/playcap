@@ -23,6 +23,7 @@ allowed_end="21:00"
 target_user=""
 targets="roblox"
 lang="auto"
+cpu_threshold=5
 while IFS='=' read -r k v; do
   case "$k" in
     enabled)            enabled="$v" ;;
@@ -33,6 +34,7 @@ while IFS='=' read -r k v; do
     target_user)        target_user="$v" ;;
     targets)            targets="$v" ;;
     lang)               lang="$v" ;;
+    cpu_threshold)      cpu_threshold="$v" ;;
   esac
 done < "$CONFIG"
 
@@ -93,6 +95,19 @@ collect_pids() {
 
 pids=$(collect_pids)
 if [ -z "$pids" ]; then
+  save_state
+  exit 0
+fi
+
+# ---- activity check: count (and enforce) only during actual play ----
+# Roblox keeps a resident "RobloxPlayer -launchToTray" process after the window
+# is closed. An idle tray process must not consume the daily budget, so a tick
+# only counts when the matched processes show real CPU activity. Gameplay runs
+# at tens of percent CPU; the idle tray sits at ~0%.
+pidlist=$(echo "$pids" | tr '\n' ',' | sed 's/,$//')
+active=$(ps -o %cpu= -p "$pidlist" 2>/dev/null \
+  | awk -v t="$cpu_threshold" '{s+=$1} END {print (s>=t ? 1 : 0)}')
+if [ "$active" != "1" ]; then
   save_state
   exit 0
 fi

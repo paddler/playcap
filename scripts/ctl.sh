@@ -91,16 +91,20 @@ case "$cmd" in
     t_user=$(get target_user "$CONFIG")
     targets=$(get targets "$CONFIG");           targets=${targets:-roblox}
     lang=$(get lang "$CONFIG");                 lang=${lang:-auto}
+    cpu_th=$(get cpu_threshold "$CONFIG");      cpu_th=${cpu_th:-5}
     read_today_state
     dow=$(date +%u)
     if [ "$dow" -ge 6 ]; then limit_min=$weekend; else limit_min=$weekday; fi
     limit_sec=$(( limit_min * 60 + bonus ))
     remain_sec=$(( limit_sec - used ))
     [ "$remain_sec" -lt 0 ] && remain_sec=0
+    # "running" means actively played (CPU activity), matching monitor.sh:
+    # Roblox's idle tray-resident process must not show as playing.
     running=0
     if [ -n "$t_user" ]; then
       t_uid=$(id -u "$t_user" 2>/dev/null || echo "")
       if [ -n "$t_uid" ]; then
+        pidlist=""
         IFS_BAK="$IFS"; IFS=','
         for pat in $targets; do
           IFS="$IFS_BAK"
@@ -108,11 +112,16 @@ case "$cmd" in
           for pid in $(pgrep -U "$t_uid" -i "$pat" 2>/dev/null); do
             name=$(basename "$(ps -o comm= -p "$pid" 2>/dev/null)" 2>/dev/null)
             case "$name" in PlayCap*|playcap*) continue ;; esac
-            running=1
+            pidlist="$pidlist,$pid"
           done
           IFS=','
         done
         IFS="$IFS_BAK"
+        pidlist=${pidlist#,}
+        if [ -n "$pidlist" ]; then
+          running=$(ps -o %cpu= -p "$pidlist" 2>/dev/null \
+            | awk -v t="$cpu_th" '{s+=$1} END {print (s>=t ? 1 : 0)}')
+        fi
       fi
     fi
     if [ "${2:-}" = "--raw" ]; then
