@@ -4,6 +4,8 @@
 
 日本語版: [README.ja.md](README.ja.md) / セットアップ: [INSTALL.ja.md](INSTALL.ja.md)
 
+<img src="docs/screenshots/gui-en.png" alt="PlayCap parent control panel" width="440">
+
 macOS Screen Time famously fails to limit Roblox (it is not a Mac App Store app — see the
 Apple Community threads with hundreds of "me too"s). Roblox's own parental controls only
 cover the single account a parent has linked — and per Roblox's own help center, at age 13

@@ -4,6 +4,8 @@
 
 English: [README.md](README.md) / Setup: [INSTALL.en.md](INSTALL.en.md)
 
+<img src="docs/screenshots/gui-ja.png" alt="PlayCap 親用設定画面" width="440">
+
 macOS のスクリーンタイムは Roblox を制限できないことで有名です（Mac App Store 外配布のため。
 Apple Community には数百件の "me too" が付いたスレッドがあります）。Roblox 公式のペアレンタル
 コントロールは、親がリンクした「その1つのアカウント」にしか効きません。しかも公式ヘルプに
