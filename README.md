@@ -86,3 +86,5 @@ prebuilt, tested, with an illustrated setup guide (English/Japanese) and email s
 ## License
 
 MIT
+
+- Privacy: [PRIVACY.md](PRIVACY.md) (100% offline, zero telemetry) / Terms: [TERMS.md](TERMS.md)
