@@ -71,8 +71,8 @@ Everything is open source (MIT). With Command Line Tools installed:
 bash tests/test_core.sh   # runs the test suite (no root required)
 ```
 
-Prefer not to build it yourself? A ready-made, tested package with an illustrated
-setup guide is available for a small fee — see the Releases page / product link.
+Prefer not to build it yourself? **[Get the ready-made package ($9.99)](https://nabe16.gumroad.com/l/playcap)** —
+prebuilt, tested, with an illustrated setup guide (English/Japanese) and email support.
 
 ## Honest limitations
 
