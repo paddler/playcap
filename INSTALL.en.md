@@ -14,7 +14,10 @@ Takes about 10 minutes. Log in with a **parent administrator account** to do thi
 1. Copy `PlayCap-installer.zip` to this Mac (AirDrop, USB, etc.) and double-click to extract
 2. Open the extracted `PlayCap` folder
 3. Double-click **Install.command**
-   - If macOS blocks it ("cannot be opened"), right-click the file and choose **Open**, then **Open** again
+   - If macOS blocks it with a dialog that has no "Open" button ("Apple could not verify..."):
+     click **Done** (not Move to Trash), open **System Settings > Privacy & Security**, scroll
+     down, click **Open Anyway** next to the Install.command message, then double-click the
+     file again and choose **Open**. On older macOS, right-click > **Open** > **Open** works
 4. Enter the administrator password when asked
 5. Type your child's account name when the list of users appears
 6. You should see "Install complete" with the current settings

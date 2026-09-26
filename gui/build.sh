@@ -8,6 +8,15 @@
 set -eu
 cd "$(dirname "$0")"
 
+# Toolchain note: newer Command Line Tools (Swift 6.4+) ship without the SwiftUI
+# macro plugin, so bare swiftc cannot compile the GUI there. Until Xcode (or a
+# fixed CLT) is installed, reuse the last good build for packaging-only changes:
+#   PLAYCAP_SKIP_BUILD=1 ./package.sh
+if [ "${PLAYCAP_SKIP_BUILD:-}" = "1" ] && [ -d "dist/PlayCap.app" ]; then
+  echo "Reusing existing gui/dist/PlayCap.app (PLAYCAP_SKIP_BUILD=1)"
+  exit 0
+fi
+
 BUILD=$(mktemp -d)
 trap 'rm -rf "$BUILD"' EXIT
 APP="$BUILD/PlayCap.app"

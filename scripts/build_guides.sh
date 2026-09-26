@@ -31,7 +31,7 @@ cat > "$OUT/Setup Guide (English).html" <<EOF
 <h2>2. Install</h2>
 <ol>
 <li>Copy this whole extracted <b>PlayCap</b> folder to the child's Mac (AirDrop, USB, shared folder).</li>
-<li>Double-click <b>Install.command</b>.<div class="warn">If macOS says it "cannot be opened": right-click the file &gt; <b>Open</b> &gt; <b>Open</b> again. This happens once because the package is not notarized by Apple yet.</div></li>
+<li>Double-click <b>Install.command</b>.<div class="warn">If macOS blocks it with a dialog that has <b>no "Open" button</b> ("Apple could not verify..."): click <b>Done</b> (not "Move to Trash"), open <b>System Settings &gt; Privacy &amp; Security</b>, scroll down, click <b>Open Anyway</b> next to the Install.command message, then double-click the file again and choose <b>Open</b>. On older macOS versions, right-click &gt; <b>Open</b> &gt; <b>Open</b> works instead. This is needed once because the package is not notarized by Apple yet.</div></li>
 <li>Enter the administrator password when asked.</li>
 <li>Type your child's account name when the user list appears.</li>
 <li>"Install complete" appears with the current settings. Done!</li>
@@ -72,7 +72,7 @@ cat > "$OUT/セットアップガイド（日本語）.html" <<EOF
 <h2>2. インストール</h2>
 <ol>
 <li>展開した <b>PlayCap</b> フォルダごと、お子さんの Mac へコピー（AirDrop・USB・共有フォルダ）。</li>
-<li><b>Install.command</b> をダブルクリック。<div class="warn">「開発元を確認できないため開けません」と出たら: ファイルを右クリック &gt; <b>開く</b> &gt; もう一度<b>開く</b>。Apple の公証を未取得のため初回のみ出ます。</div></li>
+<li><b>Install.command</b> をダブルクリック。<div class="warn">「開いていません／マルウェアが含まれていないことを検証できませんでした」という<b>「開く」ボタンのないダイアログ</b>が出たら: 「完了」で閉じる（「ゴミ箱に入れる」は押さない）&gt;「<b>システム設定 &gt; プライバシーとセキュリティ</b>」を開いて下へスクロール &gt;「"Install.command" はブロックされました」の隣の<b>「このまま開く」</b>をクリック &gt; もう一度ダブルクリックして<b>「開く」</b>。古い macOS では右クリック &gt; 開く &gt; 開く でも可。Apple の公証を未取得のため初回のみ必要です。</div></li>
 <li>管理者パスワードを入力。</li>
 <li>ユーザー一覧が出たらお子さんのアカウント名を入力。</li>
 <li>「Install complete / インストール完了」と設定が表示されれば成功です。</li>
